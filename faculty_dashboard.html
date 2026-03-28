@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Faculty Dashboard</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBmW2ktmBpM_9L9qjFqLOQXqw085ugW3ro&callback=initFacultyMap" async defer></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .section { display: none; }
+    .section.active { display: block; }
+    .sidebar-btn { transition: all 0.15s; }
+    .sidebar-btn.active-sec { background: #ccfbf1; color: #0f766e; font-weight: 700; }
+    #liveModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:50; align-items:center; justify-content:center; }
+    #liveModal.open { display:flex; }
+    #trackingMap { height:340px; border-radius:12px; }
+  </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex">
+
+<!-- ═══════ SIDEBAR ═══════ -->
+<div class="w-64 bg-white shadow-lg p-5 flex flex-col shrink-0">
+
+  <!-- Faculty profile -->
+  <div class="mb-5 pb-4 border-b border-gray-100">
+    <p class="text-xs font-semibold text-teal-500 uppercase tracking-widest mb-1">Faculty ID</p>
+    <p class="text-sm font-bold text-gray-800 mb-3">{{ faculty_id }}</p>
+    <p class="text-xs font-semibold text-teal-500 uppercase tracking-widest mb-1">Name</p>
+    <p class="text-sm font-bold text-gray-800 leading-snug">{{ faculty_name }}</p>
+  </div>
+
+  <h2 class="text-2xl font-bold text-teal-600 mb-1">Faculty</h2>
+  <p class="text-xs text-gray-400 mb-5">{{ today }}</p>
+
+  <nav class="flex flex-col gap-1 flex-1">
+    <button onclick="showSection('overview')" id="btn-overview"
+      class="sidebar-btn active-sec w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      📋 Student Journey Overview
+    </button>
+    <button onclick="showSection('analysis')" id="btn-analysis"
+      class="sidebar-btn w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      📊 Late % Analysis
+    </button>
+    <button onclick="showSection('reports')" id="btn-reports"
+      class="sidebar-btn w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      📅 Historical Reports
+    </button>
+  </nav>
+
+  <a href="/" class="mt-4 text-xs text-gray-400 hover:text-red-400 transition">← Logout</a>
+</div>
+
+<!-- ═══════ MAIN ═══════ -->
+<div class="flex-1 p-7 overflow-auto">
+
+  <!-- STATS BAR -->
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="bg-white rounded-2xl shadow p-5 text-center">
+      <p class="text-3xl font-bold text-teal-600">{{ records | length }}</p>
+      <p class="text-sm text-gray-500 mt-1">Total Students</p>
+    </div>
+    <div class="bg-white rounded-2xl shadow p-5 text-center">
+      <p class="text-3xl font-bold text-green-600">
+        {{ records | selectattr("started","eq","Yes") | list | length }}
+      </p>
+      <p class="text-sm text-gray-500 mt-1">Journeys Started</p>
+    </div>
+    <div class="bg-white rounded-2xl shadow p-5 text-center">
+      <p class="text-3xl font-bold text-blue-500">
+        {{ records | selectattr("live_status","eq","Arrived") | list | length }}
+      </p>
+      <p class="text-sm text-gray-500 mt-1">Arrived</p>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       SECTION: OVERVIEW
+  ══════════════════════════════════ -->
+  <div id="overview" class="section active bg-white rounded-2xl shadow-lg p-6">
+
+    <div class="flex items-center justify-between mb-5">
+      <h1 class="text-2xl font-bold text-gray-800">📋 Student Journey Overview</h1>
+      <!-- Export today's data -->
+      <a href="/api/export_csv?date={{ today }}"
+        class="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-teal-700 transition">
+        📤 Export Today's CSV
+      </a>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-gray-400 border-b">
+            <th class="pb-3 pr-3">Student ID</th>
+            <th class="pb-3 pr-3">Name</th>
+            <th class="pb-3 pr-3">Area</th>
+            <th class="pb-3 pr-3">Started</th>
+            <th class="pb-3 pr-3">Start Time</th>
+            <th class="pb-3 pr-3">ETA</th>
+            <th class="pb-3 pr-3">Est. Arrival</th>
+            <th class="pb-3 pr-3">Live Status</th>
+            <th class="pb-3 pr-3">Arrived At</th>
+            <th class="pb-3">Track</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for r in records %}
+          <tr class="hover:bg-gray-50">
+            <td class="py-3 pr-3 font-semibold text-gray-700">{{ r.student_id }}</td>
+            <td class="py-3 pr-3 text-gray-600">{{ r.name }}</td>
+            <td class="py-3 pr-3 text-gray-500 text-xs">{{ r.area }}</td>
+            <td class="py-3 pr-3">
+              {% if r.started == "Yes" %}
+                <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-bold">Yes</span>
+              {% else %}
+                <span class="bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full text-xs">No</span>
+              {% endif %}
+            </td>
+            <td class="py-3 pr-3 text-gray-600 text-xs">{{ r.start_time }}</td>
+            <td class="py-3 pr-3 text-gray-600 text-xs">
+              {% if r.eta_minutes != "—" %}{{ r.eta_minutes }} min{% else %}—{% endif %}
+            </td>
+            <td class="py-3 pr-3 text-gray-600 text-xs">{{ r.eta_clock }}</td>
+            <td class="py-3 pr-3">
+              {% if r.live_status == "Travelling" %}
+                <span class="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">🚗 Travelling</span>
+              {% elif r.live_status == "Arrived" %}
+                <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-bold">🏫 Arrived</span>
+              {% else %}
+                <span class="text-gray-400 text-xs">—</span>
+              {% endif %}
+            </td>
+            <td class="py-3 pr-3 text-gray-500 text-xs">{{ r.arrived_time }}</td>
+            <td class="py-3">
+              {% if r.started == "Yes" %}
+                <button onclick="openTrackModal('{{ r.student_id }}','{{ r.name }}')"
+                  class="bg-teal-100 text-teal-700 px-3 py-1 rounded-lg text-xs font-semibold hover:bg-teal-200 transition">
+                  🗺 Track
+                </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       SECTION: LATE % ANALYSIS
+  ══════════════════════════════════ -->
+  <div id="analysis" class="section bg-white rounded-2xl shadow-lg p-6">
+    <h1 class="text-2xl font-bold text-gray-800 mb-6">📊 Late % Analysis</h1>
+    <canvas id="lateChart" height="100"></canvas>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       SECTION: HISTORICAL REPORTS
+  ══════════════════════════════════ -->
+  <div id="reports" class="section bg-white rounded-2xl shadow-lg p-6">
+
+    <h1 class="text-2xl font-bold text-gray-800 mb-5">📅 Historical Reports</h1>
+
+    <!-- Date picker + actions -->
+    <div class="flex items-center gap-3 mb-6 flex-wrap">
+      <input type="date" id="reportDate"
+        value="{{ today }}"
+        max="{{ today }}"
+        class="border border-gray-200 rounded-xl px-4 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+      <button onclick="loadReport()"
+        class="bg-teal-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-teal-700 transition">
+        🔍 Load Report
+      </button>
+      <button onclick="exportReport()"
+        class="bg-gray-100 text-gray-700 px-5 py-2 rounded-xl text-sm font-semibold hover:bg-gray-200 transition">
+        📤 Export CSV
+      </button>
+    </div>
+
+    <!-- Summary cards -->
+    <div id="reportSummary" class="hidden grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div class="bg-gray-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold text-gray-700" id="rTotal">—</p>
+        <p class="text-xs text-gray-400 mt-1">Total</p>
+      </div>
+      <div class="bg-green-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold text-green-600" id="rStarted">—</p>
+        <p class="text-xs text-gray-400 mt-1">Started</p>
+      </div>
+      <div class="bg-teal-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold text-teal-600" id="rOnTime">—</p>
+        <p class="text-xs text-gray-400 mt-1">On-Time</p>
+      </div>
+      <div class="bg-red-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold text-red-500" id="rLate">—</p>
+        <p class="text-xs text-gray-400 mt-1">Late</p>
+      </div>
+      <div class="bg-yellow-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold text-yellow-600" id="rAbsent">—</p>
+        <p class="text-xs text-gray-400 mt-1">Not Started</p>
+      </div>
+    </div>
+
+    <div id="reportLoading" class="hidden text-gray-400 text-sm py-4">Loading report…</div>
+    <div id="reportEmpty"   class="hidden text-gray-400 text-sm py-4">No data for selected date.</div>
+
+    <div id="reportTableWrap" class="hidden overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-gray-400 border-b">
+            <th class="pb-3 pr-3">Student ID</th>
+            <th class="pb-3 pr-3">Name</th>
+            <th class="pb-3 pr-3">Area</th>
+            <th class="pb-3 pr-3">Start Time</th>
+            <th class="pb-3 pr-3">Arrived</th>
+            <th class="pb-3 pr-3">Distance</th>
+            <th class="pb-3 pr-3">Est. Arrival</th>
+            <th class="pb-3">Status</th>
+          </tr>
+        </thead>
+        <tbody id="reportTable" class="divide-y divide-gray-50"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+</div><!-- /main -->
+
+
+<!-- ═══════ LIVE TRACK MODAL ═══════ -->
+<div id="liveModal">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-bold text-gray-800" id="modalTitle">Live Tracking</h2>
+      <button onclick="closeModal()"
+        class="text-gray-400 hover:text-red-500 text-2xl leading-none font-bold transition">×</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-4 text-sm">
+      <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400">Start Time</p><p class="font-bold text-gray-700" id="mStart">—</p></div>
+      <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400">ETA</p><p class="font-bold text-gray-700" id="mEta">—</p></div>
+      <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400">Est. Arrival Clock</p><p class="font-bold text-gray-700" id="mClock">—</p></div>
+      <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400">Live Status</p><p class="font-bold text-gray-700" id="mStatus">—</p></div>
+    </div>
+    <div id="trackingMap"></div>
+  </div>
+</div>
+
+
+<!-- ═══════ JAVASCRIPT ═══════ -->
+<script>
+const TODAY = "{{ today }}";
+let facultyMap, facultyDirections, facultyRenderer;
+let liveMarker = null, originMark = null, collegeMark = null;
+let pollInterval = null;
+let currentTrackingStudent = null;
+let reportDateSelected = TODAY;
+
+const COLLEGE = { lat: 13.0323, lng: 80.1807 };
+
+
+// ── Section switching ──────────────────────────────────
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active-sec'));
+  document.getElementById(name).classList.add('active');
+  document.getElementById('btn-' + name).classList.add('active-sec');
+}
+
+
+// ── Init Google Map for modal ──────────────────────────
+function initFacultyMap() {
+  facultyMap = new google.maps.Map(document.getElementById("trackingMap"), {
+    zoom: 13, center: COLLEGE,
+    mapTypeControl: false, fullscreenControl: false,
+  });
+  facultyDirections = new google.maps.DirectionsService();
+  facultyRenderer   = new google.maps.DirectionsRenderer({
+    suppressMarkers: true,
+    polylineOptions: { strokeColor:"#0d9488", strokeWeight:5, strokeOpacity:0.8 }
+  });
+  facultyRenderer.setMap(facultyMap);
+
+  collegeMark = new google.maps.Marker({
+    position: COLLEGE, map: facultyMap, title:"SRM Ramapuram",
+    label: { text:"B", color:"white", fontWeight:"bold" },
+    icon: { path:google.maps.SymbolPath.CIRCLE, scale:13, fillColor:"#dc2626", fillOpacity:1, strokeColor:"#fff", strokeWeight:2 }
+  });
+}
+
+
+// ── Open track modal ───────────────────────────────────
+function openTrackModal(studentId, studentName) {
+  currentTrackingStudent = studentId;
+  document.getElementById("modalTitle").innerText = "🗺 Live Tracking — " + studentName;
+  document.getElementById("liveModal").classList.add("open");
+
+  if (pollInterval) clearInterval(pollInterval);
+  fetchLiveLocation();
+  pollInterval = setInterval(fetchLiveLocation, 15000);
+}
+
+function closeModal() {
+  document.getElementById("liveModal").classList.remove("open");
+  if (pollInterval) clearInterval(pollInterval);
+  currentTrackingStudent = null;
+  if (liveMarker)  { liveMarker.setMap(null);  liveMarker  = null; }
+  if (originMark)  { originMark.setMap(null);  originMark  = null; }
+}
+
+function fetchLiveLocation() {
+  if (!currentTrackingStudent) return;
+  fetch(`/faculty/live_location?student_id=${currentTrackingStudent}`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) return;
+      document.getElementById("mStart").innerText  = d.start_time  || "—";
+      document.getElementById("mEta").innerText    = d.eta_minutes ? d.eta_minutes + " min" : "—";
+      document.getElementById("mClock").innerText  = d.eta_clock   || "—";
+      document.getElementById("mStatus").innerText = d.live_status  || "—";
+
+      if (!d.live_lat || !d.live_lon) return;
+      const liveLoc   = { lat: parseFloat(d.live_lat), lng: parseFloat(d.live_lon) };
+      const originLoc = d.origin_lat ? { lat: parseFloat(d.origin_lat), lng: parseFloat(d.origin_lon) } : null;
+
+      // Live marker (teal dot)
+      if (liveMarker) { liveMarker.setPosition(liveLoc); }
+      else {
+        liveMarker = new google.maps.Marker({
+          position: liveLoc, map: facultyMap, zIndex:999,
+          icon:{ path:google.maps.SymbolPath.CIRCLE, scale:11, fillColor:"#0d9488", fillOpacity:1, strokeColor:"#fff", strokeWeight:3 }
+        });
+      }
+
+      // Origin marker (blue A)
+      if (!originMark && originLoc) {
+        originMark = new google.maps.Marker({
+          position: originLoc, map: facultyMap,
+          label:{ text:"A", color:"white", fontWeight:"bold" },
+          icon:{ path:google.maps.SymbolPath.CIRCLE, scale:13, fillColor:"#1d4ed8", fillOpacity:1, strokeColor:"#fff", strokeWeight:2 }
+        });
+      }
+
+      // Draw route from live position to college
+      facultyDirections.route({
+        origin: liveLoc, destination: COLLEGE,
+        travelMode: google.maps.TravelMode.DRIVING,
+      }, function(result, status) {
+        if (status === "OK") facultyRenderer.setDirections(result);
+      });
+
+      facultyMap.panTo(liveLoc);
+
+      if (d.live_status === "Arrived") {
+        clearInterval(pollInterval);
+      }
+    });
+}
+
+
+// ── Late % Chart ───────────────────────────────────────
+const records = JSON.parse('{{ records | tojson | safe }}');
+const labels  = records.map(r => r.student_id);
+const latePcts = records.map(() => Math.floor(Math.random() * 40)); // demo
+
+new Chart(document.getElementById('lateChart'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [{
+      label: 'Late %',
+      data: latePcts,
+      backgroundColor: latePcts.map(v => v > 30 ? '#ef4444' : v > 15 ? '#f59e0b' : '#10b981'),
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } }
+  }
+});
+
+
+// ══════════════════════════════════════════════════════
+//  HISTORICAL REPORTS
+// ══════════════════════════════════════════════════════
+
+function loadReport() {
+  const date = document.getElementById("reportDate").value;
+  if (!date) { alert("Please select a date."); return; }
+  reportDateSelected = date;
+
+  document.getElementById("reportSummary").classList.add("hidden");
+  document.getElementById("reportTableWrap").classList.add("hidden");
+  document.getElementById("reportEmpty").classList.add("hidden");
+  document.getElementById("reportLoading").classList.remove("hidden");
+
+  fetch(`/api/faculty_report?date=${date}`)
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById("reportLoading").classList.add("hidden");
+
+      if (!d.records || d.records.length === 0) {
+        document.getElementById("reportEmpty").classList.remove("hidden");
+        return;
+      }
+
+      // Summary cards
+      document.getElementById("rTotal").innerText   = d.summary.total;
+      document.getElementById("rStarted").innerText = d.summary.started;
+      document.getElementById("rOnTime").innerText  = d.summary.on_time;
+      document.getElementById("rLate").innerText    = d.summary.late;
+      document.getElementById("rAbsent").innerText  = d.summary.absent;
+      document.getElementById("reportSummary").classList.remove("hidden");
+      document.getElementById("reportSummary").classList.add("grid");
+
+      // Table
+      const tbody = document.getElementById("reportTable");
+      tbody.innerHTML = "";
+      d.records.forEach(r => {
+        const badge =
+          r.status === "On-Time" ? `<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">✅ On-Time</span>`
+          : r.status === "Late"  ? `<span class="px-2 py-0.5 bg-red-100 text-red-500 rounded-full text-xs font-bold">⏰ Late</span>`
+          : `<span class="px-2 py-0.5 bg-gray-100 text-gray-400 rounded-full text-xs">Absent</span>`;
+
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-gray-50";
+        tr.innerHTML = `
+          <td class="py-3 pr-3 font-semibold text-gray-700">${r.student_id}</td>
+          <td class="py-3 pr-3 text-gray-600">${r.name}</td>
+          <td class="py-3 pr-3 text-gray-400 text-xs">${r.area}</td>
+          <td class="py-3 pr-3 text-gray-600 text-xs">${r.start_time !== 'Not Started' ? r.start_time.slice(11,16) : '—'}</td>
+          <td class="py-3 pr-3 text-gray-600 text-xs">${r.arrived_time !== '—' ? r.arrived_time.slice(11,16) : '—'}</td>
+          <td class="py-3 pr-3 text-gray-600 text-xs">${r.distance} km</td>
+          <td class="py-3 pr-3 text-gray-600 text-xs">${r.eta_clock}</td>
+          <td class="py-3">${badge}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById("reportTableWrap").classList.remove("hidden");
+    });
+}
+
+function exportReport() {
+  const date = document.getElementById("reportDate").value || TODAY;
+  window.location.href = `/api/export_csv?date=${date}`;
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Student Dashboard</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBmW2ktmBpM_9L9qjFqLOQXqw085ugW3ro&callback=initMap&libraries=geometry" async defer></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .tab-section { display: none; }
+    .tab-section.active { display: block; }
+    .sidebar-btn { transition: all 0.15s; }
+    .sidebar-btn.active-tab { background:#ccfbf1; color:#0f766e; font-weight:700; }
+    #map { height:440px; width:100%; border-radius:14px; margin-bottom:20px; box-shadow:0 4px 20px rgba(0,0,0,.10); }
+    .live-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#0d9488; animation:gpulse 1.5s infinite; vertical-align:middle; margin-right:5px; }
+    @keyframes gpulse { 0%{box-shadow:0 0 0 0 rgba(13,148,136,.5)} 70%{box-shadow:0 0 0 12px rgba(13,148,136,0)} 100%{box-shadow:0 0 0 0 rgba(13,148,136,0)} }
+    .shimmer { background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.4s infinite; border-radius:10px; height:18px; margin:6px 0; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    .risk-Low{background:#d1fae5;color:#065f46} .risk-Medium{background:#fef3c7;color:#92400e} .risk-High{background:#fee2e2;color:#991b1b}
+
+    /* Calendar */
+    .cal-day { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; cursor:default; }
+    .cal-ontime  { background:#d1fae5; color:#065f46; }
+    .cal-late    { background:#fee2e2; color:#991b1b; }
+    .cal-empty   { background:#f3f4f6; color:#9ca3af; }
+    .cal-today   { outline:2px solid #0d9488; }
+
+    /* Score ring */
+    .score-ring { position:relative; width:120px; height:120px; }
+    .score-ring svg { transform:rotate(-90deg); }
+    .score-num { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:1.6rem; font-weight:800; color:#0f766e; }
+  </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex">
+
+<!-- ═══════ SIDEBAR ═══════ -->
+<div class="w-64 bg-white shadow-lg p-5 flex flex-col shrink-0">
+  <h2 class="text-2xl font-bold text-teal-600 mb-1">Student</h2>
+  <p class="text-xs text-gray-400 mb-5">{{ student_id }}</p>
+
+  <nav class="flex flex-col gap-1 flex-1">
+    <button onclick="showTab('journey')" id="btn-journey"
+      class="sidebar-btn active-tab w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      🚀 Start Journey
+    </button>
+    <button onclick="showTab('ai')" id="btn-ai"
+      class="sidebar-btn w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      🤖 AI Prediction
+    </button>
+    <button onclick="showTab('stats')" id="btn-stats"
+      class="sidebar-btn w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      📊 My Stats
+    </button>
+    <button onclick="showTab('calendar')" id="btn-calendar"
+      class="sidebar-btn w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      📅 Attendance Calendar
+    </button>
+    <button onclick="showTab('history')" id="btn-history"
+      class="sidebar-btn w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-teal-50 font-semibold text-sm">
+      📍 Journey History
+    </button>
+  </nav>
+
+  <div id="trackingPill" class="mt-4 hidden">
+    <div class="flex items-center px-3 py-2 bg-teal-50 border border-teal-200 rounded-xl">
+      <span class="live-dot"></span>
+      <span class="text-xs font-semibold text-teal-700">Live Tracking ON</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ MAIN ═══════ -->
+<div class="flex-1 p-7 flex flex-col overflow-auto">
+
+  <!-- ══════════════════════════════════
+       TAB: START JOURNEY
+  ══════════════════════════════════ -->
+  <div id="tab-journey" class="tab-section active">
+    <div id="infoBar" class="hidden grid grid-cols-3 gap-4 mb-4">
+      <div class="bg-white rounded-2xl shadow p-4 text-center">
+        <p class="text-xs text-gray-400 mb-1">📍 Distance Remaining</p>
+        <p class="text-xl font-bold text-teal-600" id="liveDistance">—</p>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center">
+        <p class="text-xs text-gray-400 mb-1">⏱ ETA</p>
+        <p class="text-xl font-bold text-gray-800" id="liveEta">—</p>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center">
+        <p class="text-xs text-gray-400 mb-1">🕐 Arriving At</p>
+        <p class="text-xl font-bold text-gray-800" id="liveArrival">—</p>
+      </div>
+    </div>
+    <div id="map"></div>
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-2">Start Journey</h1>
+      <p class="text-gray-500 mb-2 text-sm">Student ID: <b class="text-gray-700">{{ student_id }}</b></p>
+      <p class="text-gray-600 mb-6">Click below to start your journey. Live location, route, traffic and arrival time tracked every minute.</p>
+      {% if not journey_started_today %}
+        <button id="startBtn" onclick="startJourney()"
+          class="bg-teal-600 text-white px-8 py-3 rounded-xl font-semibold hover:bg-teal-700 active:scale-95 transition text-lg">
+          📍 Start Journey
+        </button>
+      {% elif tracking_active %}
+        <div class="bg-green-50 border border-green-200 rounded-xl p-4 mb-2">
+          <p class="text-green-700 font-semibold">✅ Journey started — Live tracking is ON</p>
+          <p class="text-sm text-green-600 mt-1">Location is sent to faculty every minute.</p>
+        </div>
+      {% else %}
+        <div class="bg-teal-50 border border-teal-200 rounded-xl p-4">
+          <p class="text-teal-700 font-semibold">🏫 You have arrived at college!</p>
+        </div>
+      {% endif %}
+      <div id="resultBox" class="mt-6 hidden bg-teal-50 border border-teal-200 rounded-xl p-5 space-y-1">
+        <p class="font-semibold text-teal-700 text-lg">✅ Journey Started!</p>
+        <p class="text-gray-600">📍 Distance: <b id="rDist">—</b></p>
+        <p class="text-gray-600">⏱ ETA: <b id="rEta">—</b></p>
+        <p class="text-gray-600">🕐 Arriving at: <b id="rArrival">—</b></p>
+        <p class="text-gray-600">🚦 Traffic: <b id="rTraffic">—</b></p>
+        <p id="rStatus" class="font-bold text-lg mt-1"></p>
+      </div>
+      <div id="liveLog" class="mt-4 space-y-0.5 max-h-28 overflow-y-auto"></div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       TAB: AI PREDICTION
+  ══════════════════════════════════ -->
+  <div id="tab-ai" class="tab-section">
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-3xl">🤖</span>
+        <h1 class="text-2xl font-bold text-gray-800">AI Attendance Prediction</h1>
+      </div>
+      <p class="text-gray-500 text-sm mb-6">Analyses your start time, travel ETA, and past late history to predict if you'll be late and whether your grace attendance is at risk.</p>
+      <button id="aiBtn" onclick="runAIPrediction()"
+        class="bg-teal-600 text-white px-7 py-3 rounded-xl font-semibold hover:bg-teal-700 active:scale-95 transition mb-6">
+        ✨ Run AI Prediction
+      </button>
+      <div id="aiLoading" class="hidden space-y-3 mb-6">
+        <div class="shimmer w-3/4"></div><div class="shimmer w-full"></div>
+        <div class="shimmer w-5/6"></div>
+        <p class="text-xs text-gray-400 mt-2">🤖 Analysing your attendance…</p>
+      </div>
+      <div id="aiError" class="hidden bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+        <p class="text-red-600 text-sm font-semibold" id="aiErrorMsg"></p>
+      </div>
+      <div id="aiResult" class="hidden space-y-4">
+        <div class="grid grid-cols-3 gap-4 mb-2">
+          <div class="bg-gray-50 rounded-xl p-4 text-center border"><p class="text-2xl font-bold text-gray-800" id="aiTotalDays">—</p><p class="text-xs text-gray-400 mt-1">Total Days</p></div>
+          <div class="bg-green-50 rounded-xl p-4 text-center border border-green-100"><p class="text-2xl font-bold text-green-600" id="aiOntimeDays">—</p><p class="text-xs text-gray-400 mt-1">On-Time</p></div>
+          <div class="bg-red-50 rounded-xl p-4 text-center border border-red-100"><p class="text-2xl font-bold text-red-500" id="aiLateDays">—</p><p class="text-xs text-gray-400 mt-1">Late</p></div>
+        </div>
+        <div id="latePredCard" class="flex items-start gap-4 p-5 rounded-2xl border">
+          <span id="latePredIcon" class="text-4xl shrink-0"></span>
+          <div><p class="font-bold text-lg" id="latePredTitle"></p><p class="text-sm text-gray-600 mt-1" id="latePredReason"></p></div>
+        </div>
+        <div id="graceCard" class="flex items-start gap-4 p-5 rounded-2xl border">
+          <span id="graceIcon" class="text-4xl shrink-0"></span>
+          <div><p class="font-bold text-lg" id="graceTitle"></p><p class="text-sm text-gray-600 mt-1" id="graceAnalysis"></p></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-semibold text-gray-600">Risk Level:</span>
+          <span id="riskBadge" class="px-4 py-1 rounded-full text-sm font-bold"></span>
+        </div>
+        <div class="bg-blue-50 border border-blue-100 rounded-xl p-4">
+          <p class="text-xs font-semibold text-blue-600 mb-1">📊 Pattern Insight</p>
+          <p class="text-sm text-gray-700" id="patternInsight"></p>
+        </div>
+        <div class="bg-teal-50 border border-teal-100 rounded-xl p-4">
+          <p class="text-xs font-semibold text-teal-600 mb-1">💡 AI Recommendation</p>
+          <p class="text-sm text-gray-700" id="aiRecommendation"></p>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs text-gray-500 mb-1">
+            <span>Late Rate</span><span id="latePctLabel">0%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3">
+            <div id="latePctBar" class="h-3 rounded-full transition-all duration-700" style="width:0%"></div>
+          </div>
+          <div class="flex justify-between text-xs text-gray-400 mt-1">
+            <span>0%</span><span class="text-red-500 font-semibold">25% threshold</span><span>100%</span>
+          </div>
+        </div>
+        <p class="text-xs text-gray-400 text-right" id="aiTimestamp"></p>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       TAB: MY STATS
+  ══════════════════════════════════ -->
+  <div id="tab-stats" class="tab-section">
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      <div class="flex items-center gap-3 mb-6">
+        <span class="text-3xl">📊</span>
+        <h1 class="text-2xl font-bold text-gray-800">My Attendance Stats</h1>
+      </div>
+
+      <div id="statsLoading" class="text-gray-400 text-sm">Loading stats…</div>
+      <div id="statsContent" class="hidden">
+
+        <!-- Score + summary cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div class="bg-teal-50 rounded-2xl p-5 text-center border border-teal-100">
+            <p class="text-3xl font-bold text-teal-700" id="statTotal">—</p>
+            <p class="text-xs text-gray-500 mt-1">Total Days</p>
+          </div>
+          <div class="bg-green-50 rounded-2xl p-5 text-center border border-green-100">
+            <p class="text-3xl font-bold text-green-600" id="statOntime">—</p>
+            <p class="text-xs text-gray-500 mt-1">On-Time</p>
+          </div>
+          <div class="bg-red-50 rounded-2xl p-5 text-center border border-red-100">
+            <p class="text-3xl font-bold text-red-500" id="statLate">—</p>
+            <p class="text-xs text-gray-500 mt-1">Late</p>
+          </div>
+          <div class="bg-yellow-50 rounded-2xl p-5 text-center border border-yellow-100">
+            <p class="text-3xl font-bold text-yellow-600" id="statLatePct">—</p>
+            <p class="text-xs text-gray-500 mt-1">Late %</p>
+          </div>
+        </div>
+
+        <!-- Punctuality Score + Streaks -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+
+          <!-- Score ring -->
+          <div class="bg-white border rounded-2xl p-6 flex flex-col items-center">
+            <p class="text-sm font-semibold text-gray-500 mb-4">🏆 Punctuality Score</p>
+            <div class="score-ring">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="12"/>
+                <circle id="scoreArc" cx="60" cy="60" r="50" fill="none"
+                        stroke="#0d9488" stroke-width="12"
+                        stroke-dasharray="314" stroke-dashoffset="314"
+                        stroke-linecap="round" style="transition:stroke-dashoffset 1s ease"/>
+              </svg>
+              <div class="score-num" id="scoreNum">—</div>
+            </div>
+            <p class="text-xs text-gray-400 mt-3 text-center">Out of 100 · based on on-time rate + streaks</p>
+          </div>
+
+          <!-- Current streak -->
+          <div class="bg-white border rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+            <p class="text-sm font-semibold text-gray-500 mb-3">🔥 Current Streak</p>
+            <p class="text-5xl font-bold text-orange-500" id="currentStreak">—</p>
+            <p class="text-xs text-gray-400 mt-2">consecutive on-time days</p>
+          </div>
+
+          <!-- Best streak -->
+          <div class="bg-white border rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+            <p class="text-sm font-semibold text-gray-500 mb-3">⭐ Best Streak</p>
+            <p class="text-5xl font-bold text-teal-600" id="maxStreak">—</p>
+            <p class="text-xs text-gray-400 mt-2">consecutive on-time days</p>
+          </div>
+        </div>
+
+        <!-- On-time vs Late pie chart -->
+        <div class="bg-white border rounded-2xl p-6">
+          <p class="text-sm font-semibold text-gray-600 mb-5">On-Time vs Late Breakdown</p>
+          <div class="flex items-center justify-center gap-10">
+
+            <!-- Chart — fixed size so it never blows up -->
+            <div style="width:180px; height:180px; flex-shrink:0;">
+              <canvas id="statsChart"></canvas>
+            </div>
+
+            <!-- Custom legend with stats -->
+            <div class="flex flex-col gap-4">
+              <div class="flex items-center gap-3">
+                <div class="w-4 h-4 rounded-full bg-emerald-500 shrink-0"></div>
+                <div>
+                  <p class="text-sm font-bold text-gray-700" id="legendOntime">— days</p>
+                  <p class="text-xs text-gray-400">On-Time</p>
+                </div>
+                <span class="ml-2 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold" id="legendOntimePct">—%</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="w-4 h-4 rounded-full bg-red-400 shrink-0"></div>
+                <div>
+                  <p class="text-sm font-bold text-gray-700" id="legendLate">— days</p>
+                  <p class="text-xs text-gray-400">Late</p>
+                </div>
+                <span class="ml-2 px-2 py-0.5 bg-red-50 text-red-500 rounded-full text-xs font-bold" id="legendLatePct">—%</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       TAB: ATTENDANCE CALENDAR
+  ══════════════════════════════════ -->
+  <div id="tab-calendar" class="tab-section">
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">📅</span>
+          <h1 class="text-2xl font-bold text-gray-800">Attendance Calendar</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="calPrev()" class="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold">‹</button>
+          <span id="calMonthLabel" class="text-sm font-semibold text-gray-700 w-32 text-center"></span>
+          <button onclick="calNext()" class="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold">›</button>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="flex gap-4 mb-5 text-xs text-gray-500">
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-green-200 inline-block"></span> On-Time</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-red-200 inline-block"></span> Late</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-gray-200 inline-block"></span> No Journey</span>
+      </div>
+
+      <!-- Day headers -->
+      <div class="grid grid-cols-7 gap-1 mb-1">
+        <div class="text-xs text-center font-semibold text-gray-400" v-for="d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']">
+        </div>
+        {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}
+        <div class="text-xs text-center font-semibold text-gray-400">{{ d }}</div>
+        {% endfor %}
+      </div>
+
+      <div id="calGrid" class="grid grid-cols-7 gap-1"></div>
+
+      <!-- Monthly summary -->
+      <div id="calSummary" class="mt-5 flex gap-4 text-sm">
+        <span class="text-green-600 font-semibold">✅ On-Time: <span id="calOntime">—</span></span>
+        <span class="text-red-500 font-semibold">⏰ Late: <span id="calLate">—</span></span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════
+       TAB: JOURNEY HISTORY
+  ══════════════════════════════════ -->
+  <div id="tab-history" class="tab-section">
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      <div class="flex items-center gap-3 mb-6">
+        <span class="text-3xl">📍</span>
+        <h1 class="text-2xl font-bold text-gray-800">Journey History</h1>
+      </div>
+
+      <div id="histLoading" class="text-gray-400 text-sm">Loading history…</div>
+
+      <div id="histContent" class="hidden overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs text-gray-400 border-b">
+              <th class="pb-3 pr-4">Date</th>
+              <th class="pb-3 pr-4">Start Time</th>
+              <th class="pb-3 pr-4">Arrived</th>
+              <th class="pb-3 pr-4">Distance</th>
+              <th class="pb-3 pr-4">ETA (mins)</th>
+              <th class="pb-3">Status</th>
+            </tr>
+          </thead>
+          <tbody id="histTable" class="divide-y divide-gray-50"></tbody>
+        </table>
+        <p id="histEmpty" class="hidden text-gray-400 text-sm mt-4">No journey history found.</p>
+      </div>
+    </div>
+  </div>
+
+
+</div><!-- /main -->
+
+
+<script>
+const COLLEGE    = { lat: 13.0323, lng: 80.1807 };
+const STUDENT_ID = "{{ student_id }}";
+const TRACKING_ACTIVE = "{{ tracking_active }}" === "True";
+let map, directionsService, directionsRenderer, trafficLayer;
+let studentMarkerOverlay = null, originMarker = null, trackingInterval = null;
+let currentEtaText = null, currentDistance = null, currentStartTime = null;
+
+// ── Shared history data (loaded once, used by stats + calendar + history) ──
+let historyData = null;
+let statsChart  = null;
+
+// ── Calendar state ──
+let calYear  = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+
+
+// ══════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ══════════════════════════════════════════════════════
+
+function showTab(name) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active-tab'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('btn-' + name).classList.add('active-tab');
+
+  // Lazy-load data tabs
+  if ((name === 'stats' || name === 'calendar' || name === 'history') && !historyData) {
+    loadHistoryData();
+  } else if (historyData) {
+    if (name === 'stats')    renderStats();
+    if (name === 'calendar') renderCalendar();
+    if (name === 'history')  renderHistory();
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
+//  LOAD HISTORY FROM API
+// ══════════════════════════════════════════════════════
+
+function loadHistoryData() {
+  fetch(`/api/student_history?student_id=${STUDENT_ID}`)
+    .then(r => r.json())
+    .then(d => {
+      historyData = d;
+      renderStats();
+      renderCalendar();
+      renderHistory();
+    });
+}
+
+
+// ══════════════════════════════════════════════════════
+//  RENDER: STATS TAB
+// ══════════════════════════════════════════════════════
+
+function renderStats() {
+  const d = historyData;
+  document.getElementById('statsLoading').classList.add('hidden');
+  document.getElementById('statsContent').classList.remove('hidden');
+
+  document.getElementById('statTotal').innerText   = d.total;
+  document.getElementById('statOntime').innerText  = d.on_time;
+  document.getElementById('statLate').innerText    = d.late;
+  document.getElementById('statLatePct').innerText = d.late_pct + '%';
+  document.getElementById('currentStreak').innerText = d.current_streak;
+  document.getElementById('maxStreak').innerText     = d.max_streak;
+
+  // Score ring
+  const score = d.score;
+  document.getElementById('scoreNum').innerText = score;
+  const circumference = 314;
+  const offset = circumference - (score / 100) * circumference;
+  const arc = document.getElementById('scoreArc');
+  arc.style.strokeDashoffset = offset;
+  arc.style.stroke = score >= 75 ? '#0d9488' : score >= 50 ? '#f59e0b' : '#ef4444';
+
+  // Pie chart
+  if (statsChart) statsChart.destroy();
+  const total   = d.on_time + d.late || 1;
+  const ontimePct = Math.round(d.on_time / total * 100);
+  const latePct   = Math.round(d.late   / total * 100);
+
+  // Update custom legend
+  document.getElementById('legendOntime').innerText    = d.on_time + ' days';
+  document.getElementById('legendLate').innerText      = d.late    + ' days';
+  document.getElementById('legendOntimePct').innerText = ontimePct + '%';
+  document.getElementById('legendLatePct').innerText   = latePct   + '%';
+
+  const ctx = document.getElementById('statsChart').getContext('2d');
+  statsChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['On-Time', 'Late'],
+      datasets: [{
+        data: [d.on_time || 0, d.late || 0],
+        backgroundColor: ['#10b981', '#f87171'],
+        hoverBackgroundColor: ['#059669', '#ef4444'],
+        borderWidth: 3,
+        borderColor: '#ffffff',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: '70%',
+      plugins: {
+        legend: { display: false },   // we use our own custom legend
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.label}: ${ctx.raw} days (${Math.round(ctx.raw/total*100)}%)`
+          }
+        }
+      }
+    }
+  });
+}
+
+
+// ══════════════════════════════════════════════════════
+//  RENDER: CALENDAR TAB
+// ══════════════════════════════════════════════════════
+
+function renderCalendar() {
+  const cal     = historyData.calendar; // { "2026-03-01": "On-Time", ... }
+  const today   = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+
+  const label = new Date(calYear, calMonth, 1)
+    .toLocaleString('default', { month: 'long', year: 'numeric' });
+  document.getElementById('calMonthLabel').innerText = label;
+
+  const grid      = document.getElementById('calGrid');
+  grid.innerHTML  = '';
+
+  const firstDay  = new Date(calYear, calMonth, 1).getDay(); // 0=Sun
+  const daysInMon = new Date(calYear, calMonth + 1, 0).getDate();
+
+  let calOntime = 0, calLate = 0;
+
+  // Empty cells before first day
+  for (let i = 0; i < firstDay; i++) {
+    const el = document.createElement('div');
+    el.className = 'cal-day cal-empty';
+    grid.appendChild(el);
+  }
+
+  for (let d = 1; d <= daysInMon; d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const status  = cal[dateStr];
+    const el      = document.createElement('div');
+    el.innerText  = d;
+
+    if (status === 'On-Time') { el.className = 'cal-day cal-ontime'; calOntime++; }
+    else if (status === 'Late') { el.className = 'cal-day cal-late'; calLate++; }
+    else { el.className = 'cal-day cal-empty'; }
+
+    if (dateStr === todayStr) el.classList.add('cal-today');
+    grid.appendChild(el);
+  }
+
+  document.getElementById('calOntime').innerText = calOntime;
+  document.getElementById('calLate').innerText   = calLate;
+}
+
+function calPrev() {
+  calMonth--;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  renderCalendar();
+}
+function calNext() {
+  calMonth++;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderCalendar();
+}
+
+
+// ══════════════════════════════════════════════════════
+//  RENDER: JOURNEY HISTORY TABLE
+// ══════════════════════════════════════════════════════
+
+function renderHistory() {
+  const rows = historyData.history;
+  document.getElementById('histLoading').classList.add('hidden');
+  document.getElementById('histContent').classList.remove('hidden');
+
+  const tbody = document.getElementById('histTable');
+  tbody.innerHTML = '';
+
+  if (rows.length === 0) {
+    document.getElementById('histEmpty').classList.remove('hidden');
+    return;
+  }
+
+  rows.forEach(r => {
+    const statusBadge = r.status === 'On-Time'
+      ? `<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">✅ On-Time</span>`
+      : r.status === 'Late'
+      ? `<span class="px-2 py-0.5 bg-red-100 text-red-600 rounded-full text-xs font-bold">⏰ Late</span>`
+      : `<span class="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">—</span>`;
+
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50';
+    tr.innerHTML = `
+      <td class="py-3 pr-4 font-semibold text-gray-700">${r.day}</td>
+      <td class="py-3 pr-4 text-gray-600">${r.start_time !== '—' ? r.start_time.slice(11,16) : '—'}</td>
+      <td class="py-3 pr-4 text-gray-600">${r.arrived_time !== '—' ? r.arrived_time.slice(11,16) : '—'}</td>
+      <td class="py-3 pr-4 text-gray-600">${r.distance} km</td>
+      <td class="py-3 pr-4 text-gray-600">${r.eta_minutes} min</td>
+      <td class="py-3">${statusBadge}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+
+// ══════════════════════════════════════════════════════
+//  MAP + JOURNEY (unchanged from before)
+// ══════════════════════════════════════════════════════
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    zoom: 13, center: COLLEGE, mapTypeControl: true, fullscreenControl: true,
+    mapTypeId: google.maps.MapTypeId.ROADMAP,
+  });
+  trafficLayer = new google.maps.TrafficLayer();
+  trafficLayer.setMap(map);
+  directionsService  = new google.maps.DirectionsService();
+  directionsRenderer = new google.maps.DirectionsRenderer({
+    suppressMarkers: true,
+    polylineOptions: { strokeColor:"#0d9488", strokeWeight:6, strokeOpacity:0.85 }
+  });
+  directionsRenderer.setMap(map);
+  new google.maps.Marker({
+    position: COLLEGE, map, title: "SRM Ramapuram",
+    label: { text:"B", color:"white", fontWeight:"bold" },
+    icon: { path:google.maps.SymbolPath.CIRCLE, scale:14, fillColor:"#dc2626", fillOpacity:1, strokeColor:"#fff", strokeWeight:2 }
+  });
+  if (TRACKING_ACTIVE) resumeTracking();
+}
+
+function startJourney() {
+  const btn = document.getElementById("startBtn");
+  btn.disabled = true; btn.innerText = "Locating…";
+  btn.classList.add("opacity-50","cursor-not-allowed");
+  if (!navigator.geolocation) { alert("GPS not supported."); return; }
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    const lat = pos.coords.latitude, lng = pos.coords.longitude, loc = {lat,lng};
+    placeStudentCursor(loc);
+    fetchRouteAndDraw(loc, function(info) {
+      currentEtaText = info.duration; currentDistance = info.distance;
+      currentStartTime = new Date().toISOString().replace("T"," ").slice(0,19);
+      fetch("/start_journey", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({student_id:STUDENT_ID, latitude:lat, longitude:lng})
+      }).then(r=>r.json()).then(d => {
+        if (d.error) { alert(d.error); return; }
+        currentStartTime = d.start_time;
+        document.getElementById("rDist").innerText    = info.distance;
+        document.getElementById("rEta").innerText     = info.duration;
+        document.getElementById("rArrival").innerText = info.arrivalTime;
+        document.getElementById("rTraffic").innerText = info.trafficCondition;
+        const sp = document.getElementById("rStatus");
+        sp.innerText = d.status==="On-Time" ? "✅ Predicted: On-Time" : "⏰ Predicted: Late";
+        sp.className = d.status==="On-Time" ? "font-bold text-green-600 text-lg" : "font-bold text-red-500 text-lg";
+        document.getElementById("resultBox").classList.remove("hidden");
+        document.getElementById("trackingPill").classList.remove("hidden");
+        updateInfoBar(info);
+        document.getElementById("infoBar").classList.remove("hidden");
+        document.getElementById("infoBar").classList.add("grid");
+        btn.innerText = "Journey Started ✅";
+        startLiveTracking();
+      });
+    });
+  }, function() { alert("GPS permission denied."); });
+}
+
+function resumeTracking() {
+  document.getElementById("trackingPill").classList.remove("hidden");
+  document.getElementById("infoBar").classList.remove("hidden");
+  document.getElementById("infoBar").classList.add("grid");
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    const loc = {lat:pos.coords.latitude, lng:pos.coords.longitude};
+    placeStudentCursor(loc);
+    fetchRouteAndDraw(loc, function(info) { updateInfoBar(info); currentEtaText=info.duration; currentDistance=info.distance; });
+  });
+  startLiveTracking();
+}
+
+function startLiveTracking() {
+  if (trackingInterval) clearInterval(trackingInterval);
+  trackingInterval = setInterval(function() {
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      const lat=pos.coords.latitude, lng=pos.coords.longitude, loc={lat,lng};
+      placeStudentCursor(loc);
+      fetchRouteAndDraw(loc, function(info) {
+        updateInfoBar(info); currentEtaText=info.duration; currentDistance=info.distance;
+        logUpdate("📡 Updated — "+info.distance+" remaining, ETA "+info.duration);
+      });
+      fetch("/update_location", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({student_id:STUDENT_ID, latitude:lat, longitude:lng})
+      }).then(r=>r.json()).then(d => { if (d.arrived) { clearInterval(trackingInterval); showArrivedState(); }});
+    }, function() { logUpdate("⚠️ GPS unavailable"); });
+  }, 60000);
+}
+
+function fetchRouteAndDraw(origin, callback) {
+  directionsService.route({
+    origin, destination:COLLEGE, travelMode:google.maps.TravelMode.DRIVING,
+    drivingOptions: { departureTime:new Date(), trafficModel:google.maps.TrafficModel.BEST_GUESS },
+    provideRouteAlternatives:false,
+  }, function(result, status) {
+    if (status!=="OK") { logUpdate("⚠️ Route failed: "+status); return; }
+    directionsRenderer.setDirections(result);
+    const leg = result.routes[0].legs[0];
+    const durationSecs = leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value;
+    const durationText = leg.duration_in_traffic ? leg.duration_in_traffic.text  : leg.duration.text;
+    const arrivalDt    = new Date(new Date().getTime()+durationSecs*1000);
+    const arrivalStr   = arrivalDt.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+    const ratio        = durationSecs/leg.duration.value;
+    const traffic      = ratio<1.1?"🟢 Clear":ratio<1.4?"🟡 Moderate":"🔴 Heavy";
+    if (callback) callback({distance:leg.distance.text, duration:durationText, durationSecs, arrivalTime:arrivalStr, trafficCondition:traffic});
+  });
+}
+
+function placeStudentCursor(loc) {
+  if (studentMarkerOverlay) { studentMarkerOverlay.setPosition(loc); }
+  else {
+    studentMarkerOverlay = new google.maps.Marker({
+      position:loc, map, title:"Your Location", zIndex:999,
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:11,fillColor:"#0d9488",fillOpacity:1,strokeColor:"#fff",strokeWeight:3}
+    });
+    originMarker = new google.maps.Marker({
+      position:loc, map, title:"Journey Start",
+      label:{text:"A",color:"white",fontWeight:"bold"},
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:14,fillColor:"#1d4ed8",fillOpacity:1,strokeColor:"#fff",strokeWeight:2}
+    });
+  }
+  map.panTo(loc);
+}
+
+function updateInfoBar(info) {
+  document.getElementById("liveDistance").innerText = info.distance;
+  document.getElementById("liveEta").innerText      = info.duration;
+  document.getElementById("liveArrival").innerText  = info.arrivalTime;
+}
+
+function showArrivedState() {
+  document.getElementById("trackingPill").innerHTML=`<div class="px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-xs font-semibold text-green-700">🏫 Arrived!</div>`;
+  document.getElementById("liveDistance").innerText="0 km";
+  document.getElementById("liveEta").innerText="Arrived";
+  document.getElementById("liveArrival").innerText=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+  const box=document.getElementById("resultBox");
+  box.classList.remove("hidden"); box.className="mt-6 bg-green-50 border border-green-200 rounded-xl p-5";
+  box.innerHTML=`<p class="font-bold text-green-700 text-xl">🏫 You've arrived at college!</p><p class="text-green-600 text-sm mt-1">Live tracking stopped.</p>`;
+  logUpdate("🏫 Arrived — tracking stopped.");
+}
+
+function logUpdate(msg) {
+  const log=document.getElementById("liveLog"), p=document.createElement("p");
+  p.className="text-xs text-gray-400"; p.innerText="["+new Date().toLocaleTimeString()+"] "+msg;
+  log.prepend(p);
+}
+
+
+// ══════════════════════════════════════════════════════
+//  AI PREDICTION
+// ══════════════════════════════════════════════════════
+
+function runAIPrediction() {
+  const btn = document.getElementById("aiBtn");
+  const startTime = currentStartTime || new Date().toISOString().replace("T"," ").slice(0,19);
+  document.getElementById("aiResult").classList.add("hidden");
+  document.getElementById("aiError").classList.add("hidden");
+  document.getElementById("aiLoading").classList.remove("hidden");
+  btn.disabled=true; btn.innerText="Analysing…";
+
+  fetch("/api/student_prediction", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({student_id:STUDENT_ID, start_time:startTime, eta_text:currentEtaText||"Unknown", distance:currentDistance||"Unknown"})
+  }).then(r=>r.json()).then(d => {
+    document.getElementById("aiLoading").classList.add("hidden");
+    btn.disabled=false; btn.innerText="✨ Run AI Prediction";
+    if (d.error) { document.getElementById("aiErrorMsg").innerText=d.error; document.getElementById("aiError").classList.remove("hidden"); return; }
+    renderAIResult(d);
+  }).catch(err => {
+    document.getElementById("aiLoading").classList.add("hidden");
+    btn.disabled=false; btn.innerText="✨ Run AI Prediction";
+    document.getElementById("aiErrorMsg").innerText="Network error: "+err.message;
+    document.getElementById("aiError").classList.remove("hidden");
+  });
+}
+
+function renderAIResult(d) {
+  document.getElementById("aiTotalDays").innerText  = d.total_days ?? "—";
+  document.getElementById("aiOntimeDays").innerText = d.ontime_days ?? "—";
+  document.getElementById("aiLateDays").innerText   = d.late_days ?? "—";
+  const lateCard=document.getElementById("latePredCard"), lateIcon=document.getElementById("latePredIcon"), lateTitle=document.getElementById("latePredTitle");
+  if (d.will_be_late) { lateCard.className="flex items-start gap-4 p-5 rounded-2xl border bg-red-50 border-red-200"; lateIcon.innerText="⏰"; lateTitle.className="font-bold text-lg text-red-600"; lateTitle.innerText="Prediction: You will be LATE today"; }
+  else { lateCard.className="flex items-start gap-4 p-5 rounded-2xl border bg-green-50 border-green-200"; lateIcon.innerText="✅"; lateTitle.className="font-bold text-lg text-green-700"; lateTitle.innerText="Prediction: You will be ON-TIME today"; }
+  document.getElementById("latePredReason").innerText=d.late_prediction_reason||"";
+  const graceCard=document.getElementById("graceCard"), graceIcon=document.getElementById("graceIcon"), graceTitle=document.getElementById("graceTitle");
+  if (d.grace_at_risk) { graceCard.className="flex items-start gap-4 p-5 rounded-2xl border bg-orange-50 border-orange-200"; graceIcon.innerText="⚠️"; graceTitle.className="font-bold text-lg text-orange-600"; graceTitle.innerText="Grace Attendance AT RISK"; }
+  else { graceCard.className="flex items-start gap-4 p-5 rounded-2xl border bg-green-50 border-green-200"; graceIcon.innerText="🛡️"; graceTitle.className="font-bold text-lg text-green-700"; graceTitle.innerText="Grace Attendance SAFE"; }
+  document.getElementById("graceAnalysis").innerText=d.grace_analysis||"";
+  const riskEl=document.getElementById("riskBadge"); riskEl.innerText=d.risk_level||"—"; riskEl.className=`px-4 py-1 rounded-full text-sm font-bold risk-${d.risk_level}`;
+  document.getElementById("patternInsight").innerText=d.pattern_insight||"";
+  document.getElementById("aiRecommendation").innerText=d.recommendation||"";
+  const pct=d.late_pct??0;
+  document.getElementById("latePctLabel").innerText=pct+"%";
+  document.getElementById("latePctBar").style.width=Math.min(pct,100)+"%";
+  document.getElementById("latePctBar").className="h-3 rounded-full transition-all duration-700 "+(pct>50?"bg-red-500":pct>25?"bg-yellow-400":"bg-green-500");
+  document.getElementById("aiTimestamp").innerText="Last analysed: "+new Date().toLocaleTimeString();
+  document.getElementById("aiResult").classList.remove("hidden");
+}
+</script>
+</body>
+</html>
